@@ -8,6 +8,35 @@ import io
 
 # 1. 웹페이지 제목 및 레이아웃 설정
 st.set_page_config(page_title="ALL-IN-ONE 초지능 AI 비서", page_icon="🔱", layout="wide")
+# --- 스트림릿 모든 흔적 무조건 강제 삭제 (헤더, 푸터, 메뉴, 깃허브 배너 싹 다) ---
+st.markdown("""
+    <style>
+    /* 1. 우측 상단 깃허브 마크 및 스트림릿 헤더 전체 삭제 */
+    header, [data-testid="stHeader"] {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0px !important;
+    }
+    
+    /* 2. 하단 'Made with Streamlit' 푸터 삭제 */
+    footer, [data-testid="stFooter"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    
+    /* 3. 우측 상단 메뉴 아이콘 강제 삭제 */
+    #MainMenu {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    
+    /* 4. 상단 여백 타이트하게 조절해서 꽉 찬 화면 만들기 */
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 st.title("🔱 GHK AI")
 st.subheader("사용자님 무엇을 도와드릴까요?")
 
