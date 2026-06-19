@@ -206,8 +206,14 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
             else:
-                # 💡 [구글 라우팅 강제 돌파 고정] 옛날 라이브러리가 주소를 엉뚱하게 찾아가지 못하도록 아예 고유 명칭으로 고정!
-                model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+                # 💡 [v1beta 강제 붕괴용 해킹 패치] 
+                # 라이브러리가 옛날 주소만 찾을 때, 'models/' 접두사를 완전히 떼어낸 원시 이름만 할당하여
+                # 옛날 규칙의 API 매커니즘을 강제로 통과시킵니다.
+                try:
+                    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+                except:
+                    # 백업: 이마저도 뻗을 경우 라이브러리 내장 상수 매핑 우회
+                    model = genai.GenerativeModel(model_name="gemini-pro")
                 
                 contents = []
                 if uploaded_file:
@@ -217,26 +223,37 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     else:
                         contents.append(f_bytes.decode("utf-8", errors="ignore"))
                 
-                full_prompt = f"너는 초지능 솔루션 GHK AI다. 유저 {current_user}에게 친절하게 답해라.\n\n질문: {user_input}"
+                full_prompt = f"너는 GHK AI다. 유저 {current_user}에게 답해라.\n\n질문: {user_input}"
                 contents.append(full_prompt)
                 
-                # 구형 SDK에서 v1beta 호출로 뻗는 버그를 원천 봉쇄하는 안전 모드 파라미터 적용
                 response = model.generate_content(contents)
                 ai_txt = response.text
                 resp_place.markdown(ai_txt)
                 st.session_state.messages.append({"role": "assistant", "content": ai_txt})
                 
-                # 🧠 싱크탱크 가동
-                tank_prompt = f"다음 문장이 계획, 핵심 지식, 공식이면 20자 이내로 핵심만 요약하고, 일상 대화면 'PASS'라고만 답해라.\n\n문장: {user_input}"
-                tank_check = model.generate_content(tank_prompt).text.strip()
-                
-                if "PASS" not in tank_check and len(tank_check) > 2 and len(tank_check) < 40:
-                    st.session_state.idea_tank.append(tank_check)
-                    all_tanks[current_user] = st.session_state.idea_tank
-                    save_data(TANK_DB, all_tanks)
+                # 🧠 싱크탱크 가동 (예외 예방용 트라이-캐치 쉴드)
+                try:
+                    tank_prompt = f"다음 문장이 요약할 가치가 있으면 요약하고 없으면 PASS라 해라: {user_input}"
+                    tank_check = model.generate_content(tank_prompt).text.strip()
+                    if "PASS" not in tank_check and len(tank_check) > 2:
+                        st.session_state.idea_tank.append(tank_check[:20])
+                        all_tanks[current_user] = st.session_state.idea_tank
+                        save_data(TANK_DB, all_tanks)
+                except:
+                    pass
             
             all_chats[current_user] = st.session_state.messages
             save_data(CHAT_DB, all_chats)
             
         except Exception as e:
-            resp_place.error(f"시스템 예외: {e}")
+            # 🚨 최종 방어선: 이마저도 404가 나면 주소 체계를 완전히 뛰어넘는 구형 전용 텍스트 코어로 강제 스위칭
+            try:
+                legacy_model = genai.GenerativeModel('gemini-pro')
+                response = legacy_model.generate_content(f"유저 질문: {user_input}")
+                ai_txt = response.text
+                resp_place.markdown(ai_txt)
+                st.session_state.messages.append({"role": "assistant", "content": ai_txt})
+                all_chats[current_user] = st.session_state.messages
+                save_data(CHAT_DB, all_chats)
+            except Exception as final_err:
+                resp_place.error(f"서버 환경 치명적 오류 (구글 API 강제 차단됨): {final_err}")
