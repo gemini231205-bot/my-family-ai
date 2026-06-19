@@ -49,8 +49,12 @@ def make_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def load_data(file):
-    if os.path.exists(file):
-        with open(file, "r", encoding="utf-8") as f: return json.load(f)
+    try:
+        if os.path.exists(file):
+            with open(file, "r", encoding="utf-8") as f: 
+                return json.load(f)
+    except:
+        pass
     return {}
 
 def save_data(file, data):
@@ -73,28 +77,33 @@ if not st.session_state.logged_in:
     auth_mode = st.radio("메뉴 선택", ["로그인", "회원가입"])
     
     with st.form("auth_form"):
-        user_id = st.text_input("아이디")
-        user_pw = st.text_input("비밀번호", type="password")
+        user_id = st.text_input("아이디").strip()
+        user_pw = st.text_input("비밀번호", type="password").strip()
         submit = st.form_submit_button(auth_mode)
         
         if submit:
             if auth_mode == "회원가입":
-                if user_id in users: st.error("이미 등록된 아이디입니다.")
+                if user_id in users: 
+                    st.error("이미 등록된 아이디입니다.")
                 elif user_id and user_pw:
                     users[user_id] = {"pw": make_hash(user_pw), "plan": "FREE"}
                     save_data(USER_DB, users)
                     st.success("회원가입 성공! 로그인 후 이용해 주세요.")
-                else: st.warning("정보를 전부 입력하세요.")
+                else: 
+                    st.warning("정보를 전부 입력하세요.")
             else:
                 if user_id in users and users[user_id]["pw"] == make_hash(user_pw):
                     st.session_state.logged_in = True
                     st.session_state.user = user_id
                     st.rerun()
-                else: st.error("아이디 혹은 비밀번호 확인 실패.")
+                else: 
+                    st.error("아이디 혹은 비밀번호 확인 실패.")
     st.stop()
 
 # 세션 동기화
 current_user = st.session_state.user
+if current_user not in users:
+    users[current_user] = {"pw": "", "plan": "FREE"}
 user_plan = users[current_user].get("plan", "FREE")
 
 if "messages" not in st.session_state:
@@ -153,7 +162,7 @@ with st.sidebar:
             
         st.write("---")
         if st.button("🚨 계정 즉시 탈퇴", type="secondary"):
-            del users[current_user]
+            if current_user in users: del users[current_user]
             if current_user in all_chats: del all_chats[current_user]
             if current_user in all_tanks: del all_tanks[current_user]
             save_data(USER_DB, users)
@@ -199,16 +208,20 @@ if user_input := st.chat_input("질문, 드로잉 지시, 데이터 분석 및 �
                     resp_place.image(img_path)
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
-            # 🔱 일반 대화 및 툴 가동 (검색 + 코드실행)
+            # 🔱 일반 대화 및 툴 가동 (구글 최신 도구 선언 표준 적용)
             else:
                 tools_list = []
                 if user_plan == "PREMIUM":
-                    tools_list = [{"google_search": {}}, {"code_execution": {}}]
+                    # 💡 [구글 공식 API 문서 표준 반영] 문법 구조 규격 통일
+                    tools_list = [
+                        genai.types.Tool(google_search_retrieval=genai.types.GoogleSearchRetrieval()),
+                        genai.types.Tool(code_execution=genai.types.CodeExecution())
+                    ]
                 
                 model = genai.GenerativeModel(
                     model_name="gemini-1.5-flash",
                     tools=tools_list,
-                    system_instruction=f"너는 초지능 솔루션 GHK AI다. 아주 친절하고 든든하게 대답해라."
+                    system_instruction="너는 초지능 솔루션 GHK AI다. 아주 친절하고 든든하게 대답해라."
                 )
                 
                 contents = []
@@ -216,6 +229,8 @@ if user_input := st.chat_input("질문, 드로잉 지시, 데이터 분석 및 �
                     f_bytes = uploaded_file.read()
                     if uploaded_file.type.startswith("image/"):
                         contents.append({"mime_type": uploaded_file.type, "data": f_bytes})
+                    else:
+                        contents.append(f_bytes.decode("utf-8", errors="ignore"))
                 
                 contents.append(user_input)
                 response = model.generate_content(contents)
@@ -223,7 +238,7 @@ if user_input := st.chat_input("질문, 드로잉 지시, 데이터 분석 및 �
                 resp_place.markdown(ai_txt)
                 st.session_state.messages.append({"role": "assistant", "content": ai_txt})
                 
-                # 🧠 [에러 전면 수정] 안전하게 메인 인증을 공유하여 싱크탱크 분석 가동
+                # 🧠 싱크탱크 분석 가동
                 tank_check = model.generate_content(
                     f"다음 문장이 가치 있는 계획, 아이디어, 핵심 지식, 공식인지 판단해라. 만약 가치 있다면 한 문장(20자 이내)으로 요약하고, 가치 없다면 무조건 'PASS'라고만 답해라. 문장: {user_input}"
                 ).text.strip()
