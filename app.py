@@ -35,7 +35,7 @@ st.markdown("""
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "" # 💡 코드 충돌 방지를 위해 공백 유지 (Secrets 사용 권장)
+    api_key = "AQ.Ab8RN6JZx-pbDQkxLf677cpEVginOx7ODbZe6Vtdw7xZBsbryg" # 💡 코드 충돌 방지를 위해 공백 유지 (Secrets 사용 권장)
 
 USER_DB = "users_db_v2.json"
 CHAT_DB = "chat_history_enterprise.json"
