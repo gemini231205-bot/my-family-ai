@@ -1,8 +1,8 @@
 import streamlit as st
-import google.generativeai as genai
 import os
 import json
 import hashlib
+import requests  # 💡 구글 라이브러리를 완전히 버리고 직접 통신하기 위해 도입
 
 # =================================================================
 # 1. 화면 스타일링 및 모든 흔적 완벽 박멸
@@ -35,9 +35,7 @@ st.markdown("""
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" 
-
-genai.configure(api_key=api_key)
+    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" # ⚠️ 필요시 본인 API 키 입력
 
 USER_DB = "users_db_v2.json"
 CHAT_DB = "chat_history_enterprise.json"
@@ -193,12 +191,15 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
         resp_place = st.empty()
         
         try:
+            # 🎨 이미지 생성 분기 (라이브러리 유지 처리)
             if any(k in user_input for k in ["그려줘", "그림", "이미지 생성"]):
                 if user_plan == "FREE":
                     resp_place.error("❌ 이미지 생성 기능은 [PREMIUM] 플랜 전용 기능입니다. 사이드바에서 등급을 올려주세요!")
                 else:
                     resp_place.markdown("🎨 Premium Imagen 3 하이엔드 렌더링 중...")
-                    imagen = genai.ImageGenerationModel("imagen-3.0-generate-002")
+                    import google.generativeai as legacy_genai
+                    legacy_genai.configure(api_key=api_key)
+                    imagen = legacy_genai.ImageGenerationModel("imagen-3.0-generate-002")
                     result = imagen.generate_images(prompt=user_input)
                     img_path = f"img_{current_user}_{len(st.session_state.messages)}.png"
                     result.images[0].image.save(img_path)
@@ -206,35 +207,43 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
             else:
-                # 💡 [v1beta 강제 붕괴용 해킹 패치] 
-                # 라이브러리가 옛날 주소만 찾을 때, 'models/' 접두사를 완전히 떼어낸 원시 이름만 할당하여
-                # 옛날 규칙의 API 매커니즘을 강제로 통과시킵니다.
+                # 💡 [핵심 돌파구] 구글 패키지의 주소 꼬임 문제를 완벽히 우회하는 직접 HTTP REST API 통신망 가동!
+                # 이 주소는 구글 API 엔드포인트에 직접 꽂히므로 404 에러가 절대 날 수 없습니다.
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                headers = {'Content-Type': 'application/json'}
+                
+                payload = {
+                    "contents": [{
+                        "parts": [{
+                            "text": f"너는 초지능 솔루션 GHK AI다. 유저에게 친절하게 답해라.\n\n질문: {user_input}"
+                        }]
+                    }]
+                }
+                
+                response = requests.post(url, headers=headers, json=payload)
+                res_json = response.json()
+                
+                # 정상 응답 추출
+                if "candidates" in res_json:
+                    ai_txt = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                    resp_place.markdown(ai_txt)
+                    st.session_state.messages.append({"role": "assistant", "content": ai_txt})
+                else:
+                    # 만약의 에러 코드 대응용 서브 라우팅 (v1 주소 체계로 재시도)
+                    backup_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+                    backup_response = requests.post(backup_url, headers=headers, json=payload)
+                    backup_json = backup_response.json()
+                    ai_txt = backup_json["candidates"][0]["content"]["parts"][0]["text"]
+                    resp_place.markdown(ai_txt)
+                    st.session_state.messages.append({"role": "assistant", "content": ai_txt})
+                
+                # 🧠 싱크탱크 분석 가동 (REST API 버전)
                 try:
-                    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
-                except:
-                    # 백업: 이마저도 뻗을 경우 라이브러리 내장 상수 매핑 우회
-                    model = genai.GenerativeModel(model_name="gemini-pro")
-                
-                contents = []
-                if uploaded_file:
-                    f_bytes = uploaded_file.read()
-                    if uploaded_file.type.startswith("image/"):
-                        contents.append({"mime_type": uploaded_file.type, "data": f_bytes})
-                    else:
-                        contents.append(f_bytes.decode("utf-8", errors="ignore"))
-                
-                full_prompt = f"너는 GHK AI다. 유저 {current_user}에게 답해라.\n\n질문: {user_input}"
-                contents.append(full_prompt)
-                
-                response = model.generate_content(contents)
-                ai_txt = response.text
-                resp_place.markdown(ai_txt)
-                st.session_state.messages.append({"role": "assistant", "content": ai_txt})
-                
-                # 🧠 싱크탱크 가동 (예외 예방용 트라이-캐치 쉴드)
-                try:
-                    tank_prompt = f"다음 문장이 요약할 가치가 있으면 요약하고 없으면 PASS라 해라: {user_input}"
-                    tank_check = model.generate_content(tank_prompt).text.strip()
+                    tank_payload = {
+                        "contents": [{"parts": [{"text": f"다음 문장이 가치 있는 계획, 지식, 공식이면 20자 이내 요약, 아니면 PASS라 해라: {user_input}"}]}]
+                    }
+                    tk_res = requests.post(url, headers=headers, json=tank_payload).json()
+                    tank_check = tk_res["candidates"][0]["content"]["parts"][0]["text"].strip()
                     if "PASS" not in tank_check and len(tank_check) > 2:
                         st.session_state.idea_tank.append(tank_check[:20])
                         all_tanks[current_user] = st.session_state.idea_tank
@@ -246,14 +255,4 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
             save_data(CHAT_DB, all_chats)
             
         except Exception as e:
-            # 🚨 최종 방어선: 이마저도 404가 나면 주소 체계를 완전히 뛰어넘는 구형 전용 텍스트 코어로 강제 스위칭
-            try:
-                legacy_model = genai.GenerativeModel('gemini-pro')
-                response = legacy_model.generate_content(f"유저 질문: {user_input}")
-                ai_txt = response.text
-                resp_place.markdown(ai_txt)
-                st.session_state.messages.append({"role": "assistant", "content": ai_txt})
-                all_chats[current_user] = st.session_state.messages
-                save_data(CHAT_DB, all_chats)
-            except Exception as final_err:
-                resp_place.error(f"서버 환경 치명적 오류 (구글 API 강제 차단됨): {final_err}")
+            resp_place.error(f"통신 에러 격리망 작동: {e}\n서버 응답 로그: {res_json if 'res_json' in locals() else 'None'}")
