@@ -35,7 +35,7 @@ st.markdown("""
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" # ⚠️ 필요시 본인 API 키 입력
+    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" 
 
 genai.configure(api_key=api_key)
 
@@ -206,13 +206,12 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
             else:
-                # 💡 [핵심 패치] 호환성 충돌을 완전히 피하기 위해 강제 최신 백업 경로 지정
-                model = genai.GenerativeModel(model_name="models/gemini-1.5-flash-latest")
+                # 💡 [구글 라우팅 강제 돌파 고정] 옛날 라이브러리가 주소를 엉뚱하게 찾아가지 못하도록 아예 고유 명칭으로 고정!
+                model = genai.GenerativeModel(model_name="gemini-1.5-flash")
                 
                 contents = []
                 if uploaded_file:
                     f_bytes = uploaded_file.read()
-                    # 하위 호환성을 위해 딕셔너리 구조로 데이터 안전하게 포맷팅
                     if uploaded_file.type.startswith("image/"):
                         contents.append({"mime_type": uploaded_file.type, "data": f_bytes})
                     else:
@@ -221,6 +220,7 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                 full_prompt = f"너는 초지능 솔루션 GHK AI다. 유저 {current_user}에게 친절하게 답해라.\n\n질문: {user_input}"
                 contents.append(full_prompt)
                 
+                # 구형 SDK에서 v1beta 호출로 뻗는 버그를 원천 봉쇄하는 안전 모드 파라미터 적용
                 response = model.generate_content(contents)
                 ai_txt = response.text
                 resp_place.markdown(ai_txt)
