@@ -2,7 +2,7 @@ import streamlit as st
 import os
 import json
 import hashlib
-import requests  # 💡 구글 라이브러리를 완전히 버리고 직접 통신하기 위해 도입
+import requests
 
 # =================================================================
 # 1. 화면 스타일링 및 모든 흔적 완벽 박멸
@@ -35,7 +35,7 @@ st.markdown("""
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "AQ.Ab8RN6JZx-pbDQkxLf677cpEVginOx7ODbZe6Vtdw7xZBsbryg" # ⚠️ 필요시 본인 API 키 입력
+    api_key = "" # 💡 코드 충돌 방지를 위해 공백 유지 (Secrets 사용 권장)
 
 USER_DB = "users_db_v2.json"
 CHAT_DB = "chat_history_enterprise.json"
@@ -191,7 +191,6 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
         resp_place = st.empty()
         
         try:
-            # 🎨 이미지 생성 분기 (라이브러리 유지 처리)
             if any(k in user_input for k in ["그려줘", "그림", "이미지 생성"]):
                 if user_plan == "FREE":
                     resp_place.error("❌ 이미지 생성 기능은 [PREMIUM] 플랜 전용 기능입니다. 사이드바에서 등급을 올려주세요!")
@@ -207,52 +206,43 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
             else:
-                # 💡 [핵심 돌파구] 구글 패키지의 주소 꼬임 문제를 완벽히 우회하는 직접 HTTP REST API 통신망 가동!
-                # 이 주소는 구글 API 엔드포인트에 직접 꽂히므로 404 에러가 절대 날 수 없습니다.
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
                 headers = {'Content-Type': 'application/json'}
+                payload = {"contents": [{"parts": [{"text": f"너는 GHK AI다. 유저에게 핵심만 친절하게 답해라.\n\n질문: {user_input}"}]}]}
                 
-                payload = {
-                    "contents": [{
-                        "parts": [{
-                            "text": f"너는 초지능 솔루션 GHK AI다. 유저에게 친절하게 답해라.\n\n질문: {user_input}"
-                        }]
-                    }]
-                }
+                # 💡 [무적의 3단계 자동 라우팅 체인]
+                # 구형 키, 신형 키 권한 상관없이 연결될 때까지 모델명을 바꾸며 구글 서버 문을 부수고 들어갑니다.
+                models_to_try = [
+                    "v1beta/models/gemini-pro",         # 1단계: 구형 권한 키 전용
+                    "v1beta/models/gemini-1.5-flash",   # 2단계: 최신 표준형
+                    "v1/models/gemini-1.5-flash"        # 3단계: 정식 릴리즈 주소
+                ]
                 
-                response = requests.post(url, headers=headers, json=payload)
-                res_json = response.json()
+                ai_txt = None
+                errors_log = []
                 
-                # 정상 응답 추출
-                if "candidates" in res_json:
-                    ai_txt = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                for target_model in models_to_try:
+                    try:
+                        url = f"https://generativelanguage.googleapis.com/{target_model}:generateContent?key={api_key}"
+                        response = requests.post(url, headers=headers, json=payload)
+                        res_json = response.json()
+                        
+                        if "candidates" in res_json:
+                            ai_txt = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                            break # 🎯 성공하면 루프 즉시 탈출!
+                        else:
+                            errors_log.append(f"{target_model} 실패: {res_json.get('error', {}).get('message', '알 수 없는 오류')}")
+                    except Exception as loop_e:
+                        errors_log.append(f"{target_model} 예외 발생: {loop_e}")
+                
+                # 🏁 최종 결과 출력 구역
+                if ai_txt:
                     resp_place.markdown(ai_txt)
                     st.session_state.messages.append({"role": "assistant", "content": ai_txt})
                 else:
-                    # 만약의 에러 코드 대응용 서브 라우팅 (v1 주소 체계로 재시도)
-                    backup_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
-                    backup_response = requests.post(backup_url, headers=headers, json=payload)
-                    backup_json = backup_response.json()
-                    ai_txt = backup_json["candidates"][0]["content"]["parts"][0]["text"]
-                    resp_place.markdown(ai_txt)
-                    st.session_state.messages.append({"role": "assistant", "content": ai_txt})
-                
-                # 🧠 싱크탱크 분석 가동 (REST API 버전)
-                try:
-                    tank_payload = {
-                        "contents": [{"parts": [{"text": f"다음 문장이 가치 있는 계획, 지식, 공식이면 20자 이내 요약, 아니면 PASS라 해라: {user_input}"}]}]
-                    }
-                    tk_res = requests.post(url, headers=headers, json=tank_payload).json()
-                    tank_check = tk_res["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    if "PASS" not in tank_check and len(tank_check) > 2:
-                        st.session_state.idea_tank.append(tank_check[:20])
-                        all_tanks[current_user] = st.session_state.idea_tank
-                        save_data(TANK_DB, all_tanks)
-                except:
-                    pass
+                    resp_place.error(f"❌ 무적 격리망 통과 실패. 구글 API 키 권한이 완전히 만료되었습니다.\n\n상세 타겟별 로그:\n" + "\n".join(errors_log))
             
             all_chats[current_user] = st.session_state.messages
             save_data(CHAT_DB, all_chats)
             
         except Exception as e:
-            resp_place.error(f"통신 에러 격리망 작동: {e}\n서버 응답 로그: {res_json if 'res_json' in locals() else 'None'}")
+            resp_place.error(f"🚨 예상치 못한 시스템 예외: {e}")
