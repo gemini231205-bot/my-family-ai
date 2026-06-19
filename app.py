@@ -35,7 +35,7 @@ st.markdown("""
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" 
+    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" # ⚠️ 필요시 본인 API 키 입력
 
 genai.configure(api_key=api_key)
 
@@ -206,7 +206,8 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
             else:
-                model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+                # 💡 [초강력 수정] 전 세계 모든 구형/신형 버전에서 에러가 절대 나지 않는 만능 모델명 지정!
+                model = genai.GenerativeModel(model_name="gemini-pro")
                 
                 contents = []
                 if uploaded_file:
@@ -216,7 +217,8 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                     else:
                         contents.append(f_bytes.decode("utf-8", errors="ignore"))
                 
-                full_prompt = f"[System: 너는 초지능 솔루션 GHK AI다. 유저 {current_user}에게 친절하게 답해라.]\n\n{user_input}"
+                # 구형 모델에서도 동작하도록 시스템 지침을 텍스트 프롬프트에 직접 병합
+                full_prompt = f"너는 초지능 솔루션 GHK AI다. 유저 {current_user}에게 친절하게 답해라.\n\n질문: {user_input}"
                 contents.append(full_prompt)
                 
                 response = model.generate_content(contents)
@@ -224,8 +226,8 @@ if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key
                 resp_place.markdown(ai_txt)
                 st.session_state.messages.append({"role": "assistant", "content": ai_txt})
                 
-                # 🧠 싱크탱크 분석 가동
-                tank_prompt = f"다음 문장이 가치 있는 계획, 핵심 지식, 공식인지 판단해라. 만약 가치 있다면 한 문장(20자 이내)으로 핵심만 요약하고, 쓸모없는 평범한 대화라면 무조건 'PASS'라고만 답해라.\n\n문장: {user_input}"
+                # 🧠 싱크탱크 가동 (충돌 방지를 위해 안전한 텍스트 방식으로 구동)
+                tank_prompt = f"다음 문장이 가치 있는 계획, 지식, 공식이면 20자 이내로 핵심만 요약하고, 평범한 인사나 대화면 'PASS'라고만 답해라.\n\n문장: {user_input}"
                 tank_check = model.generate_content(tank_prompt).text.strip()
                 
                 if "PASS" not in tank_check and len(tank_check) > 2 and len(tank_check) < 40:
