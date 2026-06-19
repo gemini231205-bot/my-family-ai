@@ -37,7 +37,7 @@ st.markdown("""
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "AIzaSy..." # ⚠️ 필요시 본인 API 키 입력
+    api_key = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA" # ⚠️ 필요시 본인 API 키 입력
 
 genai.configure(api_key=api_key)
 
