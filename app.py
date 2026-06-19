@@ -1,124 +1,240 @@
 import streamlit as st
-from google import genai
-from google.genai import types
+import google.generativeai as genai
+import os
+import json
+import hashlib
 from PIL import Image
-from gtts import gTTS
-import base64
 import io
 
-# 1. 웹페이지 제목 및 레이아웃 설정
-st.set_page_config(page_title="ALL-IN-ONE 초지능 AI 비서", page_icon="🔱", layout="wide")
-# --- 스트림릿 모든 흔적 무조건 강제 삭제 (헤더, 푸터, 메뉴, 깃허브 배너 싹 다) ---
+# =================================================================
+# 1. 화면 스타일링 및 모든 흔적 완벽 박멸
+# =================================================================
+st.set_page_config(page_title="GHK AI ENTERPRISE", page_icon="🔱", layout="wide")
+
 st.markdown("""
     <style>
-    /* 1. 우측 상단 깃허브 마크 및 스트림릿 헤더 전체 삭제 */
-    header, [data-testid="stHeader"] {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0px !important;
+    header, [data-testid="stHeader"], .stAppHeader, [class*="st-emotion-cache"] header {
+        display: none !important; visibility: hidden !important; height: 0px !important;
     }
-    
-    /* 2. 하단 'Made with Streamlit' 푸터 삭제 */
-    footer, [data-testid="stFooter"] {
-        display: none !important;
-        visibility: hidden !important;
+    [data-testid="stManageAppBanners"], .stManageAppBanners, iframe[title="Manage app"] {
+        display: none !important; visibility: hidden !important; height: 0px !important;
     }
-    
-    /* 3. 우측 상단 메뉴 아이콘 강제 삭제 */
-    #MainMenu {
-        display: none !important;
-        visibility: hidden !important;
+    footer, [data-testid="stFooter"], #MainMenu {
+        display: none !important; visibility: hidden !important;
     }
-    
-    /* 4. 상단 여백 타이트하게 조절해서 꽉 찬 화면 만들기 */
     .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 1.5rem !important; padding-bottom: 1.5rem !important;
+    }
+    .stButton>button {
+        width: 100%;
     }
     </style>
     """, unsafe_allow_html=True)
-st.title("🔱 GHK AI")
-st.subheader("사용자님 무엇을 도와드릴까요?")
 
-# ⚠️ [중요]여기에 네 API Key를 입력해!
-GEMINI_API_KEY = "AQ.Ab8RN6K3O5OXLonP6IjXCrqdEhgmpSRzuOuJmbpqNIDiOcujYA"
+# =================================================================
+# 2. 데이터베이스 설정 및 고도화 (유저 확장 정보 저장)
+# =================================================================
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+else:
+    api_key = "AIzaSy..." # ⚠️ 필요시 본인 API 키 입력
 
-# 구글 AI 서버와 연결하는 클라이언트 생성
-if "client" not in st.session_state:
-    st.session_state.client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=api_key)
 
-# 2. AI 인격과 규칙 정의
-SYSTEM_INSTRUCTION = """
-너는 세계 최고의 천재 인공지능 비서야. 
-[규칙]
-1. 모든 답변은 아주 자연스럽고 유창하게만 작성해.
-2. 문장은 명확하게 지적으로 대답해줘.
-3. 기본 언어는 한국어로 답변해줘.
-"""
+USER_DB = "users_db_v2.json"
+CHAT_DB = "chat_history_enterprise.json"
+TANK_DB = "idea_tank_enterprise.json"
 
-# 3. 사이드바 설정 (이미지 업로드 및 음성 출력 옵션)
-with st.sidebar:
-    st.header("⚙️ 기능 컨트롤러")
-    uploaded_file = st.file_uploader("📸 AI에게 보여줄 사진 업로드", type=["png", "jpg", "jpeg"])
+def make_hash(password):
+    return hashlib.sha256(str.encode(password)).hexdigest()
+
+def load_data(file):
+    if os.path.exists(file):
+        with open(file, "r", encoding="utf-8") as f: return json.load(f)
+    return {}
+
+def save_data(file, data):
+    with open(file, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+users = load_data(USER_DB)
+all_chats = load_data(CHAT_DB)
+all_tanks = load_data(TANK_DB)
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.user = None
+
+# =================================================================
+# 3. 로그인 및 회원가입 화면
+# =================================================================
+if not st.session_state.logged_in:
+    st.title("🔱 GHK AI 엔터프라이즈 포탈")
+    auth_mode = st.radio("메뉴 선택", ["로그인", "회원가입"])
     
-    if uploaded_file:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="로드된 이미지", use_container_width=True)
-        st.success("이미지 인식 준비 완료!")
+    with st.form("auth_form"):
+        user_id = st.text_input("아이디")
+        user_pw = st.text_input("비밀번호", type="password")
+        submit = st.form_submit_button(auth_mode)
         
-    st.markdown("---")
-    speak_out = st.checkbox("🔊 AI 답변을 목소리로 읽어주기", value=False)
+        if submit:
+            if auth_mode == "회원가입":
+                if user_id in users: st.error("이미 등록된 아이디입니다.")
+                elif user_id and user_pw:
+                    users[user_id] = {"pw": make_hash(user_pw), "plan": "FREE"}
+                    save_data(USER_DB, users)
+                    st.success("회원가입 성공! 로그인 후 이용해 주세요.")
+                else: st.warning("정보를 전부 입력하세요.")
+            else:
+                if user_id in users and users[user_id]["pw"] == make_hash(user_pw):
+                    st.session_state.logged_in = True
+                    st.session_state.user = user_id
+                    st.rerun()
+                else: st.error("아이디 혹은 비밀번호 확인 실패.")
+    st.stop()
 
-# 4. 대화 기록 메모리 공간
+# 세션 동기화
+current_user = st.session_state.user
+user_plan = users[current_user].get("plan", "FREE")
+
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = all_chats.get(current_user, [])
+if "idea_tank" not in st.session_state:
+    st.session_state.idea_tank = all_tanks.get(current_user, [])
 
-# 5. 이전 대화 화면에 그리기
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-# 6. 사용자 채팅 입력 및 텍스트 대화 처리
-if user_input := st.chat_input("질문, 이미지 분석, 웹 검색, 복잡한 계산 등을 요청하세요!"):
+# =================================================================
+# 4. 종합 제어 컨트롤 허브 (사이드바)
+# =================================================================
+with st.sidebar:
+    st.title(f"👑 {current_user}님 허브")
+    st.markdown(f"현재 등급: **[{user_plan} PLAN]**")
     
-    # 사용자 메시지 화면 표시 및 저장
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    if st.button("➕ 새 대화방 만들기 (New Chat)"):
+        st.session_state.messages = []
+        all_chats[current_user] = []
+        save_data(CHAT_DB, all_chats)
+        st.rerun()
+        
+    st.write("---")
+    
+    tab1, tab2, tab3 = st.tabs(["🔍 검색/저장", "⭐ 플랜", "👤 설정"])
+    
+    with tab1:
+        search_query = st.text_input("대화 키워드 검색")
+        if search_query:
+            found = [m for m in st.session_state.messages if search_query in m["content"] and not m.get("is_image")]
+            for f_msg in found: st.info(f"[{f_msg['role']}] {f_msg['content'][:25]}...")
+        
+        st.write("---")
+        st.write("✨ 아이디어 싱크탱크")
+        for idea in st.session_state.idea_tank: st.warning(f"💡 {idea}")
+            
+    with tab2:
+        st.subheader("🚀 라이선스 업그레이드")
+        st.write("• **FREE**: 기본 지능 탑재")
+        st.write("• **PREMIUM**: 검색 + 그림 + 코딩 무제한")
+        
+        new_plan = st.selectbox("변경할 등급 선택", ["FREE", "PREMIUM"], index=0 if user_plan=="FREE" else 1)
+        if st.button("💳 플랜 즉시 변경하기"):
+            users[current_user]["plan"] = new_plan
+            save_data(USER_DB, users)
+            st.success(f"[{new_plan}] 등급으로 즉시 반영되었습니다!")
+            st.rerun()
+            
+    with tab3:
+        st.subheader("🔒 보안 및 관리")
+        new_pw = st.text_input("새 비밀번호 변경", type="password")
+        if st.button("🔑 비밀번호 수정"):
+            if new_pw:
+                users[current_user]["pw"] = make_hash(new_pw)
+                save_data(USER_DB, users)
+                st.success("비밀번호 변경 완료!")
+            else: st.error("공백은 사용할 수 없습니다.")
+            
+        st.write("---")
+        if st.button("🚨 계정 즉시 탈퇴", type="secondary"):
+            del users[current_user]
+            if current_user in all_chats: del all_chats[current_user]
+            if current_user in all_tanks: del all_tanks[current_user]
+            save_data(USER_DB, users)
+            save_data(CHAT_DB, all_chats)
+            save_data(TANK_DB, all_tanks)
+            st.session_state.logged_in = False
+            st.rerun()
+
+    st.write("---")
+    uploaded_file = st.file_uploader("파일 업로드 인프라", type=["png", "jpg", "jpeg", "pdf", "txt"])
+    if st.button("🚪 안전 로그아웃"):
+        st.session_state.logged_in = False; st.rerun()
+
+# =================================================================
+# 5. 메인 스트리밍 및 제미나이 작동 코어
+# =================================================================
+st.title("🔱 GHK AI ENTERPRISE")
+st.caption(f"인증 계정: {current_user} | 적용 등급: {user_plan} LEVEL")
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        if msg.get("is_image"): st.image(msg["content"])
+        else: st.markdown(msg["content"])
+
+if user_input := st.chat_input("질문, 드로잉 지시, 데이터 분석 및 코드 구동 요청"):
+    with st.chat_message("user"): st.markdown(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
 
-    # AI 답변 생성 프로세스
     with st.chat_message("assistant"):
-        with st.spinner("🔱 초지능 마스터 시스템 가동 중..."):
+        resp_place = st.empty()
+        
+        try:
+            # 🎨 이미지 생성 기능 제어
+            if any(k in user_input for k in ["그려줘", "그림", "이미지 생성"]):
+                if user_plan == "FREE":
+                    resp_place.error("❌ 이미지 생성 기능은 [PREMIUM] 플랜 전용 기능입니다. 사이드바에서 등급을 올려주세요!")
+                else:
+                    resp_place.markdown("🎨 Premium Imagen 3 하이엔드 렌더링 중...")
+                    imagen = genai.ImageGenerationModel("imagen-3.0-generate-002")
+                    result = imagen.generate_images(prompt=user_input)
+                    img_path = f"img_{current_user}_{len(st.session_state.messages)}.png"
+                    result.images[0].image.save(img_path)
+                    resp_place.image(img_path)
+                    st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
-            contents_payload = [user_input]
-            if uploaded_file:
-                contents_payload.append(image)
-            
-            # 구글 서버 호출 (구글 검색 + 코드 실행 엔진 동시에 탑재!)
-            response = st.session_state.client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=contents_payload,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
-                    # 🔥 [치트키 2종 세트] 실시간 검색과 자체 코드 실행기를 모두 활성화!
-                    tools=[
-                        {"google_search": {}},     # 1. 실시간 구글 웹 검색
-                        {"code_execution": {}}     # 2. 고급 수학/데이터 분석용 파이썬 코드 실행기
-                    ]
+            # 🔱 일반 대화 및 툴 가동 (검색 + 코드실행)
+            else:
+                tools_list = []
+                if user_plan == "PREMIUM":
+                    tools_list = [{"google_search": {}}, {"code_execution": {}}]
+                
+                model = genai.GenerativeModel(
+                    model_name="gemini-1.5-flash",
+                    tools=tools_list,
+                    system_instruction=f"너는 초지능 솔루션 GHK AI다. 아주 친절하고 든든하게 대답해라."
                 )
-            )
-            ai_response = response.text
+                
+                contents = []
+                if uploaded_file:
+                    f_bytes = uploaded_file.read()
+                    if uploaded_file.type.startswith("image/"):
+                        contents.append({"mime_type": uploaded_file.type, "data": f_bytes})
+                
+                contents.append(user_input)
+                response = model.generate_content(contents)
+                ai_txt = response.text
+                resp_place.markdown(ai_txt)
+                st.session_state.messages.append({"role": "assistant", "content": ai_txt})
+                
+                # 🧠 [에러 전면 수정] 안전하게 메인 인증을 공유하여 싱크탱크 분석 가동
+                tank_check = model.generate_content(
+                    f"다음 문장이 가치 있는 계획, 아이디어, 핵심 지식, 공식인지 판단해라. 만약 가치 있다면 한 문장(20자 이내)으로 요약하고, 가치 없다면 무조건 'PASS'라고만 답해라. 문장: {user_input}"
+                ).text.strip()
+                
+                if "PASS" not in tank_check and len(tank_check) > 2 and len(tank_check) < 40:
+                    st.session_state.idea_tank.append(tank_check)
+                    all_tanks[current_user] = st.session_state.idea_tank
+                    save_data(TANK_DB, all_tanks)
             
-            # AI의 답변 표시 및 저장
-            st.markdown(ai_response)
-            st.session_state.messages.append({"role": "assistant", "content": ai_response})
+            all_chats[current_user] = st.session_state.messages
+            save_data(CHAT_DB, all_chats)
             
-            # 7. 🔊 음성 읽어주기 기능이 켜져 있다면 목소리 생성
-            if speak_out:
-                try:
-                    tts = gTTS(text=ai_response[:300], lang='ko') # 너무 길면 중간에 끊김 방지용 300자 제한
-                    sound_file = io.BytesIO()
-                    tts.write_to_fp(sound_file)
-                    st.audio(sound_file, format='audio/mp3', autoplay=True)
-                except Exception as e:
-                    st.error("음성 생성 중 오류가 발생했습니다.")
+        except Exception as e:
+            resp_place.error(f"시스템 예외: {e}")
