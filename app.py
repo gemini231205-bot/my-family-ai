@@ -1,10 +1,8 @@
 import streamlit as st
-import google.generativeai as genai
 import os
 import json
 import hashlib
-from PIL import Image
-import io
+import requests
 
 # =================================================================
 # 1. 화면 스타일링 및 모든 흔적 완벽 박멸
@@ -32,14 +30,13 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. 데이터베이스 설정 및 고도화 (유저 확장 정보 저장)
+# 2. 데이터베이스 설정 및 고도화
 # =================================================================
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
-    api_key = "AIzaSyAqEoD4sAFro4LA_aQ7je-0_xihu6u5dCA" # ⚠️ 필요시 본인 API 키 입력
-
-genai.configure(api_key=api_key)
+    # 💡 만약 Secrets 연동이 불안정하다면 아래 따옴표 안에 AIzaSy... 키를 직접 넣어도 됩니다.
+    api_key = "AIzaSyAqEoD4sAFro4LA_aQ7je-0_xihu6u5dCA" 
 
 USER_DB = "users_db_v2.json"
 CHAT_DB = "chat_history_enterprise.json"
@@ -49,8 +46,12 @@ def make_hash(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def load_data(file):
-    if os.path.exists(file):
-        with open(file, "r", encoding="utf-8") as f: return json.load(f)
+    try:
+        if os.path.exists(file):
+            with open(file, "r", encoding="utf-8") as f: 
+                return json.load(f)
+    except:
+        pass
     return {}
 
 def save_data(file, data):
@@ -70,31 +71,36 @@ if "logged_in" not in st.session_state:
 # =================================================================
 if not st.session_state.logged_in:
     st.title("🔱 GHK AI 엔터프라이즈 포탈")
-    auth_mode = st.radio("메뉴 선택", ["로그인", "회원가입"])
+    auth_mode = st.radio("메뉴 선택", ["로그인", "회원가입"], key="auth_mode_radio")
     
     with st.form("auth_form"):
-        user_id = st.text_input("아이디")
-        user_pw = st.text_input("비밀번호", type="password")
+        user_id = st.text_input("아이디", key="login_id_input").strip()
+        user_pw = st.text_input("비밀번호", type="password", key="login_pw_input").strip()
         submit = st.form_submit_button(auth_mode)
         
         if submit:
             if auth_mode == "회원가입":
-                if user_id in users: st.error("이미 등록된 아이디입니다.")
+                if user_id in users: 
+                    st.error("이미 등록된 아이디입니다.")
                 elif user_id and user_pw:
                     users[user_id] = {"pw": make_hash(user_pw), "plan": "FREE"}
                     save_data(USER_DB, users)
                     st.success("회원가입 성공! 로그인 후 이용해 주세요.")
-                else: st.warning("정보를 전부 입력하세요.")
+                else: 
+                    st.warning("정보를 전부 입력하세요.")
             else:
                 if user_id in users and users[user_id]["pw"] == make_hash(user_pw):
                     st.session_state.logged_in = True
                     st.session_state.user = user_id
                     st.rerun()
-                else: st.error("아이디 혹은 비밀번호 확인 실패.")
+                else: 
+                    st.error("아이디 혹은 비밀번호 확인 실패.")
     st.stop()
 
 # 세션 동기화
 current_user = st.session_state.user
+if current_user not in users:
+    users[current_user] = {"pw": "", "plan": "FREE"}
 user_plan = users[current_user].get("plan", "FREE")
 
 if "messages" not in st.session_state:
@@ -109,7 +115,7 @@ with st.sidebar:
     st.title(f"👑 {current_user}님 허브")
     st.markdown(f"현재 등급: **[{user_plan} PLAN]**")
     
-    if st.button("➕ 새 대화방 만들기 (New Chat)"):
+    if st.button("➕ 새 대화방 만들기 (New Chat)", key="btn_new_chat"):
         st.session_state.messages = []
         all_chats[current_user] = []
         save_data(CHAT_DB, all_chats)
@@ -120,7 +126,7 @@ with st.sidebar:
     tab1, tab2, tab3 = st.tabs(["🔍 검색/저장", "⭐ 플랜", "👤 설정"])
     
     with tab1:
-        search_query = st.text_input("대화 키워드 검색")
+        search_query = st.text_input("대화 키워드 검색", key="search_query_input")
         if search_query:
             found = [m for m in st.session_state.messages if search_query in m["content"] and not m.get("is_image")]
             for f_msg in found: st.info(f"[{f_msg['role']}] {f_msg['content'][:25]}...")
@@ -132,10 +138,10 @@ with st.sidebar:
     with tab2:
         st.subheader("🚀 라이선스 업그레이드")
         st.write("• **FREE**: 기본 지능 탑재")
-        st.write("• **PREMIUM**: 검색 + 그림 + 코딩 무제한")
+        st.write("• **PREMIUM**: 그림 생성 및 초고성능 모드 해제")
         
-        new_plan = st.selectbox("변경할 등급 선택", ["FREE", "PREMIUM"], index=0 if user_plan=="FREE" else 1)
-        if st.button("💳 플랜 즉시 변경하기"):
+        new_plan = st.selectbox("변경할 등급 선택", ["FREE", "PREMIUM"], index=0 if user_plan=="FREE" else 1, key="plan_select_box")
+        if st.button("💳 플랜 즉시 변경하기", key="btn_change_plan"):
             users[current_user]["plan"] = new_plan
             save_data(USER_DB, users)
             st.success(f"[{new_plan}] 등급으로 즉시 반영되었습니다!")
@@ -143,8 +149,8 @@ with st.sidebar:
             
     with tab3:
         st.subheader("🔒 보안 및 관리")
-        new_pw = st.text_input("새 비밀번호 변경", type="password")
-        if st.button("🔑 비밀번호 수정"):
+        new_pw = st.text_input("새 비밀번호 변경", type="password", key="change_pw_input")
+        if st.button("🔑 비밀번호 수정", key="btn_modify_pw"):
             if new_pw:
                 users[current_user]["pw"] = make_hash(new_pw)
                 save_data(USER_DB, users)
@@ -152,8 +158,8 @@ with st.sidebar:
             else: st.error("공백은 사용할 수 없습니다.")
             
         st.write("---")
-        if st.button("🚨 계정 즉시 탈퇴", type="secondary"):
-            del users[current_user]
+        if st.button("🚨 계정 즉시 탈퇴", type="secondary", key="btn_delete_account"):
+            if current_user in users: del users[current_user]
             if current_user in all_chats: del all_chats[current_user]
             if current_user in all_tanks: del all_tanks[current_user]
             save_data(USER_DB, users)
@@ -163,8 +169,8 @@ with st.sidebar:
             st.rerun()
 
     st.write("---")
-    uploaded_file = st.file_uploader("파일 업로드 인프라", type=["png", "jpg", "jpeg", "pdf", "txt"])
-    if st.button("🚪 안전 로그아웃"):
+    uploaded_file = st.file_uploader("파일 업로드 인프라", type=["png", "jpg", "jpeg", "pdf", "txt"], key="file_uploader_hub")
+    if st.button("🚪 안전 로그아웃", key="btn_logout"):
         st.session_state.logged_in = False; st.rerun()
 
 # =================================================================
@@ -178,63 +184,65 @@ for msg in st.session_state.messages:
         if msg.get("is_image"): st.image(msg["content"])
         else: st.markdown(msg["content"])
 
-if user_input := st.chat_input("질문, 드로잉 지시, 데이터 분석 및 코드 구동 요청"):
+if user_input := st.chat_input("GHK AI에게 무엇이든 물어보세요!", key="chat_input_core"):
     with st.chat_message("user"): st.markdown(user_input)
     st.session_state.messages.append({"role": "user", "content": user_input})
 
     with st.chat_message("assistant"):
         resp_place = st.empty()
+        debug_response_text = "통신 시작 전"
         
         try:
-            # 🎨 이미지 생성 기능 제어
             if any(k in user_input for k in ["그려줘", "그림", "이미지 생성"]):
                 if user_plan == "FREE":
                     resp_place.error("❌ 이미지 생성 기능은 [PREMIUM] 플랜 전용 기능입니다. 사이드바에서 등급을 올려주세요!")
                 else:
                     resp_place.markdown("🎨 Premium Imagen 3 하이엔드 렌더링 중...")
-                    imagen = genai.ImageGenerationModel("imagen-3.0-generate-002")
+                    import google.generativeai as legacy_genai
+                    legacy_genai.configure(api_key=api_key)
+                    imagen = legacy_genai.ImageGenerationModel("imagen-3.0-generate-002")
                     result = imagen.generate_images(prompt=user_input)
                     img_path = f"img_{current_user}_{len(st.session_state.messages)}.png"
                     result.images[0].image.save(img_path)
                     resp_place.image(img_path)
                     st.session_state.messages.append({"role": "assistant", "content": img_path, "is_image": True})
             
-            # 🔱 일반 대화 및 툴 가동 (검색 + 코드실행)
             else:
-                tools_list = []
-                if user_plan == "PREMIUM":
-                    tools_list = [{"google_search": {}}, {"code_execution": {}}]
+                # 🎯 [최후의 마스터 타겟] 꼬이는 beta 주소체계를 완전히 배제하고 v1 정식판 릴리즈 경로 고정!
+                url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
+                headers = {'Content-Type': 'application/json'}
+                payload = {
+                    "contents": [{
+                        "parts": [{
+                            "text": f"너는 초지능 솔루션 GHK AI다. 유저에게 친절하게 답해라.\n\n질문: {user_input}"
+                        }]
+                    }]
+                }
                 
-                model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
-                    tools=tools_list,
-                    system_instruction=f"너는 초지능 솔루션 GHK AI다. 아주 친절하고 든든하게 대답해라."
-                )
+                response = requests.post(url, headers=headers, json=payload)
+                debug_response_text = response.text
+                res_json = response.json()
                 
-                contents = []
-                if uploaded_file:
-                    f_bytes = uploaded_file.read()
-                    if uploaded_file.type.startswith("image/"):
-                        contents.append({"mime_type": uploaded_file.type, "data": f_bytes})
-                
-                contents.append(user_input)
-                response = model.generate_content(contents)
-                ai_txt = response.text
-                resp_place.markdown(ai_txt)
-                st.session_state.messages.append({"role": "assistant", "content": ai_txt})
-                
-                # 🧠 [에러 전면 수정] 안전하게 메인 인증을 공유하여 싱크탱크 분석 가동
-                tank_check = model.generate_content(
-                    f"다음 문장이 가치 있는 계획, 아이디어, 핵심 지식, 공식인지 판단해라. 만약 가치 있다면 한 문장(20자 이내)으로 요약하고, 가치 없다면 무조건 'PASS'라고만 답해라. 문장: {user_input}"
-                ).text.strip()
-                
-                if "PASS" not in tank_check and len(tank_check) > 2 and len(tank_check) < 40:
-                    st.session_state.idea_tank.append(tank_check)
-                    all_tanks[current_user] = st.session_state.idea_tank
-                    save_data(TANK_DB, all_tanks)
+                if "candidates" in res_json:
+                    ai_txt = res_json["candidates"][0]["content"]["parts"][0]["text"]
+                    resp_place.markdown(ai_txt)
+                    st.session_state.messages.append({"role": "assistant", "content": ai_txt})
+                else:
+                    # 백업: 구형 키 연동을 대비한 v1 정식판 gemini-pro 우회 라우팅
+                    backup_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={api_key}"
+                    backup_response = requests.post(backup_url, headers=headers, json=payload)
+                    debug_response_text = backup_response.text
+                    backup_json = backup_response.json()
+                    
+                    if "candidates" in backup_json:
+                        ai_txt = backup_json["candidates"][0]["content"]["parts"][0]["text"]
+                        resp_place.markdown(ai_txt)
+                        st.session_state.messages.append({"role": "assistant", "content": ai_txt})
+                    else:
+                        resp_place.error(f"❌ 구글 정식 v1 프로토콜 연결 실패.\n\n서버 응답 로그:\n`{debug_response_text}`")
             
             all_chats[current_user] = st.session_state.messages
             save_data(CHAT_DB, all_chats)
             
         except Exception as e:
-            resp_place.error(f"시스템 예외: {e}")
+            resp_place.error(f"🚨 시스템 예외 발생: {e}\n\n최종 로그: `{debug_response_text}`")
